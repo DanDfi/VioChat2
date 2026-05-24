@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Czat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div class="screen active" id="auth-screen">
+  <div class="auth-box">
+    <div>
+      <div class="logo">czat<span>.io</span></div>
+      <div style="font-size:12px;color:var(--text3);margin-top:4px;font-family:var(--mono)">max 5 użytkowników</div>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('login')">Logowanie</button>
+      <button class="tab-btn" onclick="switchTab('register')">Rejestracja</button>
+    </div>
+    <div class="tab-content active" id="tab-login">
+      <div>
+        <label>Token logowania</label>
+        <input type="text" id="login-token" placeholder="Wklej swój token..." style="margin-top:6px">
+      </div>
+      <div class="err" id="login-err"></div>
+      <button class="btn btn-primary" onclick="doLogin()">Zaloguj się →</button>
+    </div>
+    <div class="tab-content" id="tab-register">
+      <div>
+        <label>Nick (1-20 znaków)</label>
+        <input type="text" id="reg-nick" placeholder="Twój nick..." maxlength="20" style="margin-top:6px">
+      </div>
+      <div id="server-password-wrap" style="display:none">
+        <label>Hasło serwera</label>
+        <input type="password" id="reg-password" placeholder="Hasło do serwera..." style="margin-top:6px">
+      </div>
+      <div class="err" id="reg-err"></div>
+      <button class="btn btn-primary" onclick="doRegister()">Stwórz konto →</button>
+      <div class="token-result" id="reg-result">
+        <div>
+          <div class="token-label">Token logowania (zapisz go!)</div>
+          <div class="token-value" id="res-login-token" title="Kliknij aby skopiować"></div>
+        </div>
+        <div>
+          <div class="token-label">Twój 4-znakowy kod (do udostępniania)</div>
+          <div class="token-value token-short" id="res-short-token"></div>
+        </div>
+        <div class="info">⚠️ Zapisz token logowania — nie można go odzyskać!</div>
+        <button class="btn btn-primary" onclick="loginWithNewToken()">Wejdź do czatu →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CHAT SCREEN -->
+<div class="screen" id="chat-screen">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">czat</div>
+      <div class="sidebar-sub" id="online-count">0 online</div>
+    </div>
+    <div class="sidebar-section">Użytkownicy</div>
+    <div class="users-list" id="users-list"></div>
+    <div class="sidebar-footer">
+      <div class="me-row">
+        <div class="avatar-wrap">
+          <div class="avatar" id="me-avatar-mini"></div>
+          <div class="status-dot online"></div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div class="me-nick" id="me-nick-display">—</div>
+          <div class="me-tag" id="me-tag-display">—</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="settings-btn" onclick="openSettings()" style="flex:1">⚙ <span>Ustawienia</span></button>
+        <button class="settings-btn logout-btn" onclick="doLogout()" title="Wyloguj">⏻</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CHAT AREA -->
+  <main class="chat-area">
+    <div class="chat-header">
+      <div style="width:8px;height:8px;border-radius:50%;background:var(--online)"></div>
+      <div class="chat-title" id="chat-title"># ogólny</div>
+      <div class="chat-subtitle" id="header-count">— w pokoju</div>
+      <button class="dm-close-btn" id="dm-close-btn" onclick="closeDM()" style="display:none">✕ Wróć do ogólnego</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="typing-bar" id="typing-bar"></div>
+    <div class="input-bar" style="position:relative">
+      <div id="image-preview-row" style="display:none">
+        <div class="preview-image">
+          <img id="preview-img" src="" alt="">
+          <button class="remove-img" onclick="removeImage()">×</button>
+        </div>
+        <div class="uploading-indicator" id="upload-indicator">Wysyłanie...</div>
+      </div>
+      <div class="input-row">
+        <div class="input-wrap">
+          <textarea id="msg-input" rows="1" placeholder="Napisz wiadomość..." onkeydown="handleKey(event)" oninput="autoResize(this);handleMention(this);sendTyping()"></textarea>
+          <div class="input-actions">
+            <button class="icon-btn" onclick="toggleEmoji()" title="Emotki">😊</button>
+            <label class="icon-btn" for="file-input" title="Zdjęcie" style="cursor:pointer">🖼</label>
+            <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleImageSelect(event)">
+          </div>
+        </div>
+        <button class="send-btn" onclick="sendMessage()">↑</button>
+      </div>
+      <!-- Emoji picker -->
+      <div class="emoji-picker" id="emoji-picker"></div>
+      <!-- Mention autocomplete -->
+      <div class="mention-list" id="mention-list"></div>
+    </div>
+  </main>
+</div>
+
+<!-- DM PANEL in sidebar (injected dynamically) -->
+
+<!-- SETTINGS PANEL -->
+<div class="panel-overlay" id="settings-overlay" onclick="closeSettings(event)">
+  <div class="panel" onclick="event.stopPropagation()">
+    <div class="panel-title">Ustawienia konta</div>
+    <div class="panel-section">
+      <label>Avatar</label>
+      <div class="avatar-upload-area">
+        <div class="avatar-preview" id="settings-avatar-preview"></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label class="btn btn-ghost" for="avatar-file-input" style="cursor:pointer;display:inline-block;font-size:13px">Zmień avatar</label>
+          <input type="file" id="avatar-file-input" accept="image/*" style="display:none" onchange="uploadAvatar(event)">
+          <div style="font-size:11px;color:var(--text3)">Max 2MB · JPG/PNG/GIF/WEBP</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <label>Nick</label>
+      <input type="text" id="settings-nick" maxlength="20" placeholder="Twój nick" style="margin-top:6px">
+      <div class="err" id="nick-err"></div>
+    </div>
+    <div class="panel-section">
+      <label>Twoje tokeny</label>
+      <div class="token-copy-row">
+        <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">Login:</span>
+        <span class="token-copy-val" id="settings-login-token"></span>
+        <button class="btn btn-ghost copy-mini" onclick="copyText(document.getElementById('settings-login-token').textContent)">Kopiuj</button>
+      </div>
+      <div class="token-copy-row">
+        <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">Kod:</span>
+        <span class="token-copy-val" id="settings-short-token" style="font-size:18px;font-weight:700;letter-spacing:4px;color:var(--accent)"></span>
+        <button class="btn btn-ghost copy-mini" onclick="copyText(document.getElementById('settings-short-token').textContent)">Kopiuj</button>
+      </div>
+    </div>
+    <div class="panel-section">
+      <label>Dźwięk powiadomień</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <label class="toggle-switch">
+          <input type="checkbox" id="sound-toggle" checked onchange="saveSoundPref()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:13px;color:var(--text2)">Powiadomienia dźwiękowe</span>
+      </div>
+    </div>
+    <div class="panel-section">
+      <label>Motyw</label>
+      <div class="theme-picker" style="display:flex;gap:8px;margin-top:4px">
+        <button class="theme-btn" id="theme-light" onclick="setTheme('light')" title="Jasny">☀️ Jasny</button>
+        <button class="theme-btn" id="theme-dark" onclick="setTheme('dark')" title="Ciemny">🌙 Ciemny</button>
+      </div>
+    </div>
+    <div class="panel-section">
+      <label>Użyte miejsce</label>
+      <div class="storage-bar"><div class="storage-fill" id="storage-fill" style="width:0%"></div></div>
+      <div class="storage-text" id="storage-text">0 MB / 50 MB</div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn btn-ghost" onclick="closeSettings()">Anuluj</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Zapisz</button>
+    </div>
+    <div style="border-top:1px solid var(--border);padding:12px 0 0;margin-top:4px;text-align:center">
+      <button class="btn" onclick="doLogout()" style="width:100%;background:transparent;border:1px solid var(--danger,#e05);color:var(--danger,#e05);font-size:13px;padding:8px">⏻ Wyloguj się</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<script src="/chat.js"></script>
+</body>
+</html>
