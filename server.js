@@ -11,6 +11,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const MAX_USERS = 20;
 const MAX_STORAGE_PER_USER = 50 * 1024 * 1024;
 
@@ -25,6 +26,7 @@ const avatarsDir = path.join(DATA_DIR, 'avatars');
 
 const users = new Map();
 const sessions = new Map();
+const bannedTokens = new Set();
 const uploadSizes = new Map();
 const MAX_MESSAGES = 200;
 let messageHistory = [];
@@ -112,9 +114,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(uploadsDir));
 app.use('/avatars', express.static(avatarsDir));
 
+function adminMiddleware(req, res, next) {
+  const pwd = req.headers['x-admin-password'];
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin not configured. Set ADMIN_PASSWORD env var.' });
+  if (pwd !== ADMIN_PASSWORD) return res.status(403).json({ error: 'Invalid admin password' });
+  next();
+}
+
 function authMiddleware(req, res, next) {
   const token = req.headers['x-auth-token'];
   if (!token || !users.has(token)) return res.status(401).json({ error: 'Unauthorized' });
+  if (bannedTokens.has(token)) return res.status(403).json({ error: 'Banned' });
   req.userToken = token;
   req.user = users.get(token);
   next();
@@ -283,6 +293,11 @@ wss.on('connection', (ws) => {
         ws.close();
         return;
       }
+      if (bannedTokens.has(token)) {
+        ws.send(JSON.stringify({ type: 'auth_error', message: 'Zbanowany' }));
+        ws.close();
+        return;
+      }
       sessions.set(ws, token);
       ws.send(JSON.stringify({ type: 'auth_ok', nick: user.nick, shortToken: user.shortToken, avatar: user.avatar }));
       if (messageHistory.length > 0) {
@@ -385,6 +400,110 @@ wss.on('connection', (ws) => {
       broadcastUserList();
       if (user) broadcast({ type: 'system', text: `${user.nick} opuścił czat` });
     }
+  });
+});
+
+// ── ADMIN API ──
+
+// Verify admin password
+app.post('/api/admin/verify', (req, res) => {
+  const { password } = req.body;
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin not configured. Set ADMIN_PASSWORD env var.' });
+  if (password !== ADMIN_PASSWORD) return res.status(403).json({ error: 'Invalid password' });
+  res.json({ ok: true });
+});
+
+// Get all users with full details
+app.get('/api/admin/users', adminMiddleware, (req, res) => {
+  const list = [];
+  users.forEach((u, token) => {
+    const isOnline = [...sessions.values()].includes(token);
+    const isBanned = bannedTokens.has(token);
+    list.push({
+      nick: u.nick,
+      shortToken: u.shortToken,
+      avatar: u.avatar,
+      online: isOnline,
+      banned: isBanned,
+      storageUsed: u.storageUsed || 0,
+      createdAt: u.createdAt || null,
+      loginToken: token
+    });
+  });
+  res.json(list);
+});
+
+// Get message history
+app.get('/api/admin/messages', adminMiddleware, (req, res) => {
+  res.json(messageHistory);
+});
+
+// Delete user
+app.delete('/api/admin/users/:shortToken', adminMiddleware, (req, res) => {
+  const short = req.params.shortToken.toUpperCase();
+  let targetToken = null;
+  users.forEach((u, token) => { if (u.shortToken === short) targetToken = token; });
+  if (!targetToken) return res.status(404).json({ error: 'User not found' });
+  const user = users.get(targetToken);
+  users.delete(targetToken);
+  uploadSizes.delete(targetToken);
+  bannedTokens.delete(targetToken);
+  saveUsers();
+  // kick active WS session
+  sessions.forEach((token, ws) => {
+    if (token === targetToken) {
+      ws.send(JSON.stringify({ type: 'auth_error', message: 'Twoje konto zostało usunięte' }));
+      ws.close();
+    }
+  });
+  broadcast({ type: 'system', text: `Konto ${user.nick} zostało usunięte przez admina` });
+  broadcastUserList();
+  res.json({ ok: true });
+});
+
+// Ban user
+app.post('/api/admin/users/:shortToken/ban', adminMiddleware, (req, res) => {
+  const short = req.params.shortToken.toUpperCase();
+  let targetToken = null;
+  users.forEach((u, token) => { if (u.shortToken === short) targetToken = token; });
+  if (!targetToken) return res.status(404).json({ error: 'User not found' });
+  const user = users.get(targetToken);
+  bannedTokens.add(targetToken);
+  // kick active session
+  sessions.forEach((token, ws) => {
+    if (token === targetToken) {
+      ws.send(JSON.stringify({ type: 'auth_error', message: 'Zostałeś zbanowany' }));
+      ws.close();
+    }
+  });
+  broadcast({ type: 'system', text: `${user.nick} został zbanowany` });
+  broadcastUserList();
+  res.json({ ok: true });
+});
+
+// Unban user
+app.post('/api/admin/users/:shortToken/unban', adminMiddleware, (req, res) => {
+  const short = req.params.shortToken.toUpperCase();
+  let targetToken = null;
+  users.forEach((u, token) => { if (u.shortToken === short) targetToken = token; });
+  if (!targetToken) return res.status(404).json({ error: 'User not found' });
+  bannedTokens.delete(targetToken);
+  const user = users.get(targetToken);
+  broadcast({ type: 'system', text: `${user.nick} został odbanowany` });
+  res.json({ ok: true });
+});
+
+// Server stats
+app.get('/api/admin/stats', adminMiddleware, (req, res) => {
+  const onlineCount = new Set(sessions.values()).size;
+  let totalStorage = 0;
+  users.forEach(u => { totalStorage += u.storageUsed || 0; });
+  res.json({
+    totalUsers: users.size,
+    onlineUsers: onlineCount,
+    bannedUsers: bannedTokens.size,
+    totalMessages: messageHistory.length,
+    totalStorage
   });
 });
 
