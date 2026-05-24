@@ -1,0 +1,5 @@
+node_modules/
+uploads/
+avatars/
+users.json
+messages.json
