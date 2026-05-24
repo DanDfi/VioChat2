@@ -129,6 +129,7 @@ function enterChat() {
   initMeDisplay();
   connectWS();
   buildEmojiPicker();
+  checkAdminAvailable();
 }
 
 // ── ME DISPLAY ──
@@ -605,6 +606,19 @@ document.addEventListener('keydown', e => {
 
 // ── AUTO LOGIN ──
 // Przy starcie strony sprawdź czy token jest zapisany w localStorage i zaloguj automatycznie
+async function checkAdminAvailable() {
+  try {
+    const r = await fetch('/api/admin/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: '' })
+    });
+    // 503 = not configured, hide button; 403 = wrong pwd but admin exists, show button
+    const btn = document.getElementById('admin-btn');
+    if (btn) btn.style.display = r.status === 503 ? 'none' : 'flex';
+  } catch {}
+}
+
 async function autoLogin() {
   loadTheme();
   const savedToken = localStorage.getItem('chatToken');
@@ -632,3 +646,177 @@ async function autoLogin() {
 
 // Uruchom auto-login zaraz po załadowaniu DOM
 document.addEventListener('DOMContentLoaded', autoLogin);
+
+// ── ADMIN PANEL ──
+let adminAuthenticated = false;
+let adminPassword = '';
+
+function openAdmin() {
+  document.getElementById('admin-overlay').classList.add('show');
+  if (!adminAuthenticated) {
+    document.getElementById('admin-login-section').style.display = 'block';
+    document.getElementById('admin-content').style.display = 'none';
+    setTimeout(() => document.getElementById('admin-password-input').focus(), 100);
+  } else {
+    loadAdminData();
+  }
+}
+
+function closeAdmin(e) {
+  if (e && e.target !== document.getElementById('admin-overlay')) return;
+  document.getElementById('admin-overlay').classList.remove('show');
+}
+
+async function verifyAdmin() {
+  const pwd = document.getElementById('admin-password-input').value;
+  const errEl = document.getElementById('admin-login-err');
+  errEl.textContent = '';
+  if (!pwd) { errEl.textContent = 'Wpisz hasło'; return; }
+
+  try {
+    const r = await fetch('/api/admin/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      errEl.textContent = d.error || 'Błędne hasło';
+      return;
+    }
+    adminPassword = pwd;
+    adminAuthenticated = true;
+    document.getElementById('admin-login-section').style.display = 'none';
+    document.getElementById('admin-content').style.display = 'block';
+    document.getElementById('admin-password-input').value = '';
+    loadAdminData();
+  } catch {
+    errEl.textContent = 'Błąd połączenia';
+  }
+}
+
+function switchAdminTab(tab, btn) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.admin-tab-content').forEach(t => t.style.display = 'none');
+  btn.classList.add('active');
+  document.getElementById(`admin-tab-${tab}`).style.display = 'block';
+}
+
+async function loadAdminData() {
+  const headers = { 'x-admin-password': adminPassword };
+  try {
+    const [statsRes, usersRes, msgsRes] = await Promise.all([
+      fetch('/api/admin/stats', { headers }),
+      fetch('/api/admin/users', { headers }),
+      fetch('/api/admin/messages', { headers })
+    ]);
+    if (statsRes.status === 403) { adminAuthenticated = false; openAdmin(); return; }
+    const stats = await statsRes.json();
+    const users = await usersRes.json();
+    const msgs = await msgsRes.json();
+    renderAdminStats(stats);
+    renderAdminUsers(users);
+    renderAdminMessages(msgs);
+  } catch {
+    console.error('Admin load failed');
+  }
+}
+
+function renderAdminStats(s) {
+  const fmt = n => n >= 1024*1024 ? (n/1024/1024).toFixed(1)+'MB' : n >= 1024 ? (n/1024).toFixed(0)+'KB' : n+'B';
+  document.getElementById('admin-stats').innerHTML = `
+    <div class="admin-stat-card"><div class="admin-stat-val">${s.totalUsers}</div><div class="admin-stat-label">Użytkownicy</div></div>
+    <div class="admin-stat-card"><div class="admin-stat-val" style="color:var(--teal)">${s.onlineUsers}</div><div class="admin-stat-label">Online</div></div>
+    <div class="admin-stat-card"><div class="admin-stat-val" style="color:var(--danger)">${s.bannedUsers}</div><div class="admin-stat-label">Bany</div></div>
+    <div class="admin-stat-card"><div class="admin-stat-val" style="color:var(--text2)">${fmt(s.totalStorage)}</div><div class="admin-stat-label">Storage</div></div>
+  `;
+}
+
+function renderAdminUsers(users) {
+  const container = document.getElementById('admin-users-list');
+  if (!users.length) { container.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px">Brak użytkowników</div>'; return; }
+
+  container.innerHTML = users.map(u => {
+    const fmtStorage = u.storageUsed >= 1024*1024
+      ? (u.storageUsed/1024/1024).toFixed(1)+'MB'
+      : u.storageUsed >= 1024 ? (u.storageUsed/1024).toFixed(0)+'KB' : u.storageUsed+'B';
+    const created = u.createdAt ? new Date(u.createdAt).toLocaleDateString('pl-PL') : '—';
+    const statusBadge = u.banned
+      ? '<span class="admin-badge badge-banned">ZBAN</span>'
+      : u.online
+        ? '<span class="admin-badge badge-online">ONLINE</span>'
+        : '<span class="admin-badge badge-offline">offline</span>';
+
+    const avatarHtml = u.avatar
+      ? `<img src="${u.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+      : (u.nick[0] || '?').toUpperCase();
+
+    const banBtn = u.banned
+      ? `<button class="admin-action-btn success" onclick="adminUnban('${u.shortToken}')">Odbanuj</button>`
+      : `<button class="admin-action-btn danger" onclick="adminBan('${u.shortToken}', '${u.nick.replace(/'/g,"\\'")}')">Banuj</button>`;
+
+    return `
+      <div class="admin-user-row ${u.banned ? 'banned' : ''}" id="admin-user-${u.shortToken}">
+        <div class="avatar">${avatarHtml}</div>
+        <div class="admin-user-info">
+          <div class="admin-user-nick">${esc(u.nick)} ${statusBadge}</div>
+          <div class="admin-user-meta">#${u.shortToken} · ${fmtStorage} · od ${created}</div>
+        </div>
+        <div class="admin-actions">
+          ${banBtn}
+          <button class="admin-action-btn danger" onclick="adminDelete('${u.shortToken}', '${u.nick.replace(/'/g,"\\'")}')">Usuń</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderAdminMessages(msgs) {
+  const container = document.getElementById('admin-messages-list');
+  if (!msgs.length) { container.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px">Brak wiadomości</div>'; return; }
+
+  const recent = [...msgs].reverse().slice(0, 50);
+  container.innerHTML = recent.map(m => {
+    const time = new Date(m.ts).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    const date = new Date(m.ts).toLocaleDateString('pl-PL');
+    return `
+      <div class="admin-msg-row">
+        <div class="admin-msg-meta">${esc(m.nick)} · #${m.shortToken} · ${date} ${time}</div>
+        <div class="admin-msg-text">${m.text ? esc(m.text) : '<em style="color:var(--text3)">[zdjęcie]</em>'}</div>
+      </div>`;
+  }).join('');
+}
+
+async function adminBan(shortToken, nick) {
+  if (!confirm(`Zbanować użytkownika ${nick}?\nNie będzie mógł się zalogować.`)) return;
+  try {
+    const r = await fetch(`/api/admin/users/${shortToken}/ban`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    if (r.ok) loadAdminData();
+    else { const d = await r.json(); alert(d.error); }
+  } catch { alert('Błąd połączenia'); }
+}
+
+async function adminUnban(shortToken) {
+  try {
+    const r = await fetch(`/api/admin/users/${shortToken}/unban`, {
+      method: 'POST',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    if (r.ok) loadAdminData();
+    else { const d = await r.json(); alert(d.error); }
+  } catch { alert('Błąd połączenia'); }
+}
+
+async function adminDelete(shortToken, nick) {
+  if (!confirm(`USUNĄĆ konto ${nick}?\nTej operacji nie można cofnąć.`)) return;
+  try {
+    const r = await fetch(`/api/admin/users/${shortToken}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-password': adminPassword }
+    });
+    if (r.ok) loadAdminData();
+    else { const d = await r.json(); alert(d.error); }
+  } catch { alert('Błąd połączenia'); }
+}

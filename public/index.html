@@ -79,6 +79,7 @@
       </div>
       <div style="display:flex;gap:6px;margin-top:4px">
         <button class="settings-btn" onclick="openSettings()" style="flex:1">⚙ <span>Ustawienia</span></button>
+        <button class="settings-btn admin-btn" id="admin-btn" onclick="openAdmin()" title="Panel admina" style="display:none">🛡</button>
         <button class="settings-btn logout-btn" onclick="doLogout()" title="Wyloguj">⏻</button>
       </div>
     </div>
@@ -184,6 +185,53 @@
     </div>
     <div style="border-top:1px solid var(--border);padding:12px 0 0;margin-top:4px;text-align:center">
       <button class="btn" onclick="doLogout()" style="width:100%;background:transparent;border:1px solid var(--danger,#e05);color:var(--danger,#e05);font-size:13px;padding:8px">⏻ Wyloguj się</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ADMIN PANEL -->
+<div class="panel-overlay" id="admin-overlay" onclick="closeAdmin(event)">
+  <div class="panel admin-panel" onclick="event.stopPropagation()">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="panel-title">🛡 Panel Admina</div>
+      <button class="btn btn-ghost" onclick="closeAdmin()" style="padding:6px 12px;font-size:12px">✕</button>
+    </div>
+
+    <!-- Login form (shown if not authenticated) -->
+    <div id="admin-login-section">
+      <div class="panel-section">
+        <label>Hasło admina</label>
+        <input type="password" id="admin-password-input" placeholder="••••••••" style="margin-top:6px" onkeydown="if(event.key==='Enter')verifyAdmin()">
+        <div class="err" id="admin-login-err"></div>
+      </div>
+      <button class="btn btn-primary" onclick="verifyAdmin()" style="width:100%;margin-top:4px">Zaloguj jako admin</button>
+    </div>
+
+    <!-- Admin content (shown after auth) -->
+    <div id="admin-content" style="display:none">
+      <!-- Stats bar -->
+      <div id="admin-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px"></div>
+
+      <!-- Tabs -->
+      <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('users',this)">Użytkownicy</button>
+        <button class="admin-tab" onclick="switchAdminTab('messages',this)">Wiadomości</button>
+      </div>
+
+      <!-- Users tab -->
+      <div id="admin-tab-users" class="admin-tab-content active">
+        <div id="admin-users-list" style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;padding-right:4px"></div>
+      </div>
+
+      <!-- Messages tab -->
+      <div id="admin-tab-messages" class="admin-tab-content" style="display:none">
+        <div id="admin-messages-list" style="display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;padding-right:4px"></div>
+      </div>
+
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn btn-ghost" onclick="loadAdminData()" style="font-size:12px;padding:7px 14px">↻ Odśwież</button>
+      </div>
     </div>
   </div>
 </div>
