@@ -405,6 +405,16 @@ wss.on('connection', (ws) => {
 
 // ── ADMIN API ──
 
+// Ping — just tells client if admin is configured (no auth needed)
+app.get('/api/admin/ping', (req, res) => {
+  res.json({ configured: !!ADMIN_PASSWORD });
+});
+
+// Check if admin is configured (no auth needed)
+app.get('/api/admin/ping', (req, res) => {
+  res.json({ configured: !!ADMIN_PASSWORD });
+});
+
 // Verify admin password
 app.post('/api/admin/verify', (req, res) => {
   const { password } = req.body;
