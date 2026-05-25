@@ -608,14 +608,10 @@ document.addEventListener('keydown', e => {
 // Przy starcie strony sprawdź czy token jest zapisany w localStorage i zaloguj automatycznie
 async function checkAdminAvailable() {
   try {
-    const r = await fetch('/api/admin/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: '' })
-    });
-    // 503 = not configured, hide button; 403 = wrong pwd but admin exists, show button
+    const r = await fetch('/api/admin/ping');
+    const d = await r.json();
     const btn = document.getElementById('admin-btn');
-    if (btn) btn.style.display = r.status === 503 ? 'none' : 'flex';
+    if (btn) btn.style.display = d.configured ? 'flex' : 'none';
   } catch {}
 }
 
